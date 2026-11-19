@@ -1,0 +1,64 @@
+import paho.mqtt.client as mqtt
+import mysql.connector
+import json
+
+# --- CONFIGURACIÓN DB ---
+db_config = {
+    'host': 'localhost',
+    'user': 'Itzel04_user',
+    'password': '020404',
+    'database': 'LIAC_CA'
+}
+
+# --- CONFIGURACIÓN MQTT ---
+MQTT_BROKER = "localhost"
+MQTT_TOPIC = "aula/+/datos"
+
+# El script se autentica con cualquier usuario válido de Mosquitto
+MQTT_USER = "sick_build_1"
+MQTT_PASS = "1"
+
+conexion = None
+
+def get_db_connection():
+    global conexion
+    if conexion is None or not conexion.is_connected():
+        conexion = mysql.connector.connect(**db_config)
+    return conexion
+
+def on_connect(client, userdata, flags, rc):
+    if rc == 0:
+        print("✅ Conexión exitosa al Broker MQTT (Receptor de Nodos)")
+        client.subscribe(MQTT_TOPIC)
+    else:
+        print(f"❌ Error de conexión al Broker. Código: {rc}")
+
+def on_message(client, userdata, msg):
+    try:
+        data = json.loads(msg.payload.decode())
+
+        # Extrae automáticamente 'Nodo1' o 'Nodo2' del tópico
+        nodo = msg.topic.split('/')[1]
+
+        db = get_db_connection()
+        cursor = db.cursor()
+
+        query = "INSERT INTO Datos (nodo, temperatura, humedad, ppm) VALUES (%s, %s, %s, %s)"
+        valores = (nodo, data['temp'], data['hum'], data['ppm'])
+
+        cursor.execute(query, valores)
+        db.commit()
+        cursor.close()
+
+        print(f"💾 Guardado de [{nodo}]: Temp:{data['temp']}°C, Hum:{data['hum']}%, PPM:{data['ppm']}")
+    except Exception as e:
+        print(f"❌ Error al procesar/insertar datos: {e}")
+
+client = mqtt.Client()
+client.username_pw_set(MQTT_USER, MQTT_PASS)
+
+client.on_connect = on_connect
+client.on_message = on_message
+
+client.connect(MQTT_BROKER, 1883, 60)
+client.loop_forever()
